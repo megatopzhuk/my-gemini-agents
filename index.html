@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>Gemini Multi-Agent Studio</title>
+  <title>Gemini Multi-Agent Studio (Cloud)</title>
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- Marked.js для рендеринга Markdown -->
@@ -12,12 +12,7 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
   <style>
-    /* Адаптивная высота с учетом мобильных браузеров */
-    .app-height {
-      height: 100vh;
-      height: 100dvh;
-    }
-    /* Стили для контента внутри ответов AI */
+    .app-height { height: 100vh; height: 100dvh; }
     .prose pre { background: #1e293b; padding: 10px; border-radius: 8px; overflow-x: auto; margin: 8px 0; font-size: 0.85em; }
     .prose code { font-family: monospace; font-size: 0.9em; word-break: break-word; }
     .prose p { margin-bottom: 0.6em; }
@@ -31,14 +26,57 @@
 </head>
 <body class="bg-slate-950 text-slate-100 app-height flex overflow-hidden font-sans relative">
 
-  <!-- ЗАТЕМНЕНИЕ ФОНА ДЛЯ МОБИЛЬНЫХ ШТОРОК -->
-  <div id="mobileBackdrop" class="fixed inset-0 bg-black/60 backdrop-blur-xs z-30 hidden lg:hidden transition-opacity"></div>
+  <!-- ЭКРАН АВТОРИЗАЦИИ -->
+  <div id="authScreen" class="fixed inset-0 z-50 bg-slate-950 flex items-center justify-center p-4">
+    <div class="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-2xl p-6 flex flex-col gap-4 shadow-2xl">
+      <div class="text-center">
+        <h1 class="text-xl font-bold text-blue-400">Gemini Agents Cloud</h1>
+        <p class="text-xs text-slate-400 mt-1">Войдите для синхронизации чатов, настроек и API-ключа</p>
+      </div>
 
-  <!-- ЛЕВАЯ ПАНЕЛЬ (Шторка на мобильных, фиксированная колонка на ПК) -->
+      <form id="emailLoginForm" class="flex flex-col gap-3">
+        <div>
+          <label class="text-xs text-slate-400 block mb-1">Email</label>
+          <input type="email" id="loginEmail" required placeholder="you@example.com"
+                 class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" />
+        </div>
+        <div>
+          <label class="text-xs text-slate-400 block mb-1">Пароль</label>
+          <input type="password" id="loginPassword" required placeholder="••••••••"
+                 class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" />
+        </div>
+        <button type="submit" id="emailLoginBtn"
+                class="w-full bg-blue-600 hover:bg-blue-500 text-white font-medium py-2.5 rounded-lg text-sm transition mt-1">
+          Войти по Email
+        </button>
+      </form>
+
+      <div class="relative flex py-1 items-center">
+        <div class="flex-grow border-t border-slate-800"></div>
+        <span class="flex-shrink mx-3 text-xs text-slate-500">или</span>
+        <div class="flex-grow border-t border-slate-800"></div>
+      </div>
+
+      <button id="googleLoginBtn" type="button"
+              class="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium py-2.5 rounded-lg text-sm transition flex items-center justify-center gap-2 border border-slate-700">
+        <span>Войти через Google</span>
+      </button>
+
+      <p id="authError" class="text-xs text-red-400 text-center hidden"></p>
+    </div>
+  </div>
+
+  <!-- ЗАТЕМНЕНИЕ ФОНА ДЛЯ МОБИЛЬНЫХ ШТОРОК -->
+  <div id="mobileBackdrop" class="fixed inset-0 bg-black/60 z-30 hidden lg:hidden"></div>
+
+  <!-- ЛЕВАЯ ПАНЕЛЬ -->
   <aside id="leftSidebar" class="fixed inset-y-0 left-0 z-40 w-72 bg-slate-900 border-r border-slate-800 flex flex-col justify-between p-4 transform -translate-x-full transition-transform duration-200 ease-in-out lg:static lg:translate-x-0 shrink-0">
     <div class="flex flex-col gap-3 overflow-hidden">
       <div class="flex items-center justify-between">
-        <h1 class="text-lg font-bold tracking-tight text-blue-400">Gemini Agents</h1>
+        <div>
+          <h1 class="text-lg font-bold tracking-tight text-blue-400">Gemini Agents</h1>
+          <span id="syncStatus" class="text-[11px] text-emerald-400">● Облако подключено</span>
+        </div>
         <div class="flex items-center gap-1.5">
           <button id="addAgentBtn" class="bg-blue-600 hover:bg-blue-500 text-white text-xs px-2.5 py-1.5 rounded-lg font-medium transition">
             + Новый
@@ -49,14 +87,13 @@
         </div>
       </div>
 
-      <!-- Список независимых агентов -->
       <div id="agentsList" class="flex flex-col gap-1.5 overflow-y-auto pr-1"></div>
     </div>
 
-    <!-- Нижний блок: API Key и Бэкап -->
+    <!-- Нижний блок: API Key, Бэкап и Выход -->
     <div class="border-t border-slate-800 pt-3 flex flex-col gap-2.5 text-xs">
       <div>
-        <label class="text-slate-400 block mb-1">Gemini API Key:</label>
+        <label class="text-slate-400 block mb-1">Gemini API Key (в облаке):</label>
         <input type="password" id="apiKeyInput" placeholder="AIzaSy..." 
                class="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 text-slate-200 focus:outline-none focus:border-blue-500" />
       </div>
@@ -67,16 +104,18 @@
           <input type="file" id="importInput" accept=".json" class="hidden" />
         </label>
       </div>
+      <div class="flex items-center justify-between pt-1 border-t border-slate-800/80 text-slate-400">
+        <span id="userEmailLabel" class="truncate max-w-[160px]"></span>
+        <button id="logoutBtn" class="text-red-400 hover:text-red-300 font-medium">Выйти</button>
+      </div>
     </div>
   </aside>
 
-  <!-- ЦЕНТРАЛЬНАЯ ОБЛАСТЬ: Чат с выбранным агентом -->
+  <!-- ЦЕНТРАЛЬНАЯ ОБЛАСТЬ -->
   <main class="flex-1 flex flex-col h-full min-w-0 bg-slate-950">
-    <!-- Адаптивная шапка -->
     <header class="h-14 border-b border-slate-800 px-3 sm:px-5 flex items-center justify-between gap-2 bg-slate-900/70 shrink-0">
       <div class="flex items-center gap-2.5 min-w-0">
-        <!-- Кнопка открытия списка агентов на мобильных -->
-        <button id="openLeftBtn" class="lg:hidden p-2 -ml-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 shrink-0" title="Агенты и ключ">
+        <button id="openLeftBtn" class="lg:hidden p-2 -ml-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 shrink-0">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
           </svg>
@@ -89,7 +128,7 @@
       </div>
 
       <div class="flex items-center gap-1.5 sm:gap-2 shrink-0">
-        <button id="clearChatBtn" class="text-xs bg-slate-800 hover:bg-red-900/60 text-slate-300 hover:text-red-200 px-2.5 py-1.5 rounded-lg transition" title="Очистить историю">
+        <button id="clearChatBtn" class="text-xs bg-slate-800 hover:bg-red-900/60 text-slate-300 hover:text-red-200 px-2.5 py-1.5 rounded-lg transition">
           <span class="hidden sm:inline">Очистить</span>
           <span class="sm:hidden">🗑️</span>
         </button>
@@ -100,10 +139,8 @@
       </div>
     </header>
 
-    <!-- Лента сообщений -->
     <div id="chatContainer" class="flex-1 overflow-y-auto px-3 py-4 sm:p-6 flex flex-col gap-3 sm:gap-4"></div>
 
-    <!-- Поле ввода -->
     <div class="p-2.5 sm:p-4 border-t border-slate-800 bg-slate-900/60 shrink-0">
       <form id="chatForm" class="max-w-4xl mx-auto flex items-end gap-2">
         <textarea id="messageInput" rows="1" placeholder="Сообщение агенту..."
@@ -119,7 +156,7 @@
     </div>
   </main>
 
-  <!-- ПРАВАЯ ПАНЕЛЬ: Индивидуальные настройки текущего агента -->
+  <!-- ПРАВАЯ ПАНЕЛЬ -->
   <aside id="settingsPanel" class="fixed inset-y-0 right-0 z-40 w-80 max-w-[85vw] bg-slate-900 border-l border-slate-800 p-4 flex flex-col gap-4 overflow-y-auto transform translate-x-full transition-transform duration-200 ease-in-out lg:static lg:translate-x-0 shrink-0">
     <div class="flex items-center justify-between border-b border-slate-800 pb-2.5">
       <h3 class="font-semibold text-sm text-slate-200">Параметры агента</h3>
@@ -171,13 +208,34 @@
     </div>
 
     <div class="text-[11px] text-slate-500 mt-auto pt-2">
-      Данные хранятся локально в памяти вашего браузера.
+      Все изменения автоматически синхронизируются с Firebase Cloud.
     </div>
   </aside>
 
-  <script>
-    // --- СОСТОЯНИЕ ПРИЛОЖЕНИЯ ---
-    const STORAGE_KEY = 'gemini_multi_agent_studio_v1';
+  <!-- ПОДКЛЮЧЕНИЕ FIREBASE SDK -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
+    import { 
+      getAuth, signInWithEmailAndPassword, GoogleAuthProvider, 
+      signInWithPopup, onAuthStateChanged, signOut 
+    } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
+    import { 
+      getFirestore, doc, getDoc, setDoc, onSnapshot 
+    } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyC7gTpUVBwQcvfTWR7DzC6FWvx--bT4XhQ",
+      authDomain: "my-gemini-agents.firebaseapp.com",
+      projectId: "my-gemini-agents",
+      storageBucket: "my-gemini-agents.firebasestorage.app",
+      messagingSenderId: "38126517542",
+      appId: "1:38126517542:web:10611bf9c227c0e46855e7",
+      measurementId: "G-D3KBL37PWV"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
 
     const defaultAgents = [
       {
@@ -200,33 +258,21 @@
       }
     ];
 
-    let state = loadState();
+    let currentUser = null;
+    let unsubscribeSnapshot = null;
+    let saveTimeout = null;
 
-    function loadState() {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        try {
-          return JSON.parse(saved);
-        } catch (e) {
-          console.error('Ошибка чтения localStorage', e);
-        }
-      }
-      return {
-        apiKey: '',
-        activeAgentId: defaultAgents[0].id,
-        agents: defaultAgents
-      };
-    }
-
-    function saveState() {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    }
-
-    function getActiveAgent() {
-      return state.agents.find(a => a.id === state.activeAgentId) || state.agents[0];
-    }
+    let state = {
+      apiKey: '',
+      activeAgentId: defaultAgents[0].id,
+      agents: defaultAgents
+    };
 
     // --- DOM ЭЛЕМЕНТЫ ---
+    const authScreen = document.getElementById('authScreen');
+    const authError = document.getElementById('authError');
+    const syncStatus = document.getElementById('syncStatus');
+    const userEmailLabel = document.getElementById('userEmailLabel');
     const agentsListEl = document.getElementById('agentsList');
     const apiKeyInput = document.getElementById('apiKeyInput');
     const chatContainer = document.getElementById('chatContainer');
@@ -241,7 +287,100 @@
     const messageInput = document.getElementById('messageInput');
     const sendBtn = document.getElementById('sendBtn');
 
-    // Мобильные шторки
+    // --- АВТОРИЗАЦИЯ ---
+    document.getElementById('emailLoginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      authError.classList.add('hidden');
+      const email = document.getElementById('loginEmail').value.trim();
+      const password = document.getElementById('loginPassword').value;
+      try {
+        await signInWithEmailAndPassword(auth, email, password);
+      } catch (err) {
+        authError.textContent = 'Ошибка входа: ' + err.message;
+        authError.classList.remove('hidden');
+      }
+    });
+
+    document.getElementById('googleLoginBtn').addEventListener('click', async () => {
+      authError.classList.add('hidden');
+      const provider = new GoogleAuthProvider();
+      try {
+        await signInWithPopup(auth, provider);
+      } catch (err) {
+        authError.textContent = 'Ошибка входа Google: ' + err.message;
+        authError.classList.remove('hidden');
+      }
+    });
+
+    document.getElementById('logoutBtn').addEventListener('click', () => {
+      if (unsubscribeSnapshot) unsubscribeSnapshot();
+      signOut(auth);
+    });
+
+    onAuthStateChanged(auth, async (user) => {
+      currentUser = user;
+      if (user) {
+        authScreen.classList.add('hidden');
+        userEmailLabel.textContent = user.email;
+        await initCloudSync(user.uid);
+      } else {
+        authScreen.classList.remove('hidden');
+      }
+    });
+
+    // --- ОБЛАЧНАЯ СИНХРОНИЗАЦИЯ FIRESTORE ---
+    async function initCloudSync(uid) {
+      const userDocRef = doc(db, 'users', uid);
+      syncStatus.textContent = '↻ Загрузка...';
+      syncStatus.className = 'text-[11px] text-amber-400';
+
+      const docSnap = await getDoc(userDocRef);
+      if (!docSnap.exists()) {
+        const localSaved = localStorage.getItem('gemini_multi_agent_studio_v1');
+        if (localSaved) {
+          try { state = JSON.parse(localSaved); } catch (e) {}
+        }
+        await setDoc(userDocRef, state);
+      }
+
+      unsubscribeSnapshot = onSnapshot(userDocRef, (snapshot) => {
+        if (snapshot.metadata.hasPendingWrites) return;
+        if (snapshot.exists()) {
+          state = snapshot.data();
+          if (!state.agents || state.agents.length === 0) state.agents = defaultAgents;
+          if (!state.activeAgentId) state.activeAgentId = state.agents[0].id;
+          renderAll();
+          syncStatus.textContent = '● Синхронизировано';
+          syncStatus.className = 'text-[11px] text-emerald-400';
+        }
+      });
+    }
+
+    function saveState() {
+      if (!currentUser) return;
+      syncStatus.textContent = '↻ Сохранение...';
+      syncStatus.className = 'text-[11px] text-amber-400';
+
+      clearTimeout(saveTimeout);
+      saveTimeout = setTimeout(async () => {
+        try {
+          const userDocRef = doc(db, 'users', currentUser.uid);
+          await setDoc(userDocRef, state);
+          syncStatus.textContent = '● Синхронизировано';
+          syncStatus.className = 'text-[11px] text-emerald-400';
+        } catch (err) {
+          console.error('Ошибка записи в Firestore:', err);
+          syncStatus.textContent = '✕ Ошибка облака';
+          syncStatus.className = 'text-[11px] text-red-400';
+        }
+      }, 400);
+    }
+
+    function getActiveAgent() {
+      return state.agents.find(a => a.id === state.activeAgentId) || state.agents[0];
+    }
+
+    // --- МОБИЛЬНЫЕ ШТОРКИ ---
     const leftSidebar = document.getElementById('leftSidebar');
     const settingsPanel = document.getElementById('settingsPanel');
     const mobileBackdrop = document.getElementById('mobileBackdrop');
@@ -260,7 +399,6 @@
 
     function openRightDrawer() {
       if (window.innerWidth >= 1024) {
-        // На десктопе просто скрываем/показываем правую колонку
         settingsPanel.classList.toggle('lg:hidden');
       } else {
         closeDrawers();
@@ -277,7 +415,9 @@
 
     // --- РЕНДЕР ИНТЕРФЕЙСА ---
     function renderAll() {
-      apiKeyInput.value = state.apiKey || '';
+      if (document.activeElement !== apiKeyInput) {
+        apiKeyInput.value = state.apiKey || '';
+      }
       renderAgentsList();
       renderActiveAgent();
     }
@@ -298,7 +438,7 @@
           state.activeAgentId = agent.id;
           saveState();
           renderAll();
-          closeDrawers(); // На телефоне закрываем меню сразу после выбора агента
+          closeDrawers();
         };
         agentsListEl.appendChild(btn);
       });
@@ -311,9 +451,8 @@
       currentAgentTitle.textContent = agent.name;
       currentAgentSubtitle.textContent = `${agent.model} • T:${agent.temperature}${agent.useSearch ? ' • Search' : ''}`;
 
-      agentNameInput.value = agent.name;
+      if (document.activeElement !== agentNameInput) agentNameInput.value = agent.name;
       
-      // Если модели нет в списке опций, добавляем её динамически
       if (!Array.from(agentModelSelect.options).some(opt => opt.value === agent.model)) {
         const opt = document.createElement('option');
         opt.value = agent.model;
@@ -322,7 +461,7 @@
       }
       agentModelSelect.value = agent.model;
 
-      agentSystemPrompt.value = agent.systemInstruction;
+      if (document.activeElement !== agentSystemPrompt) agentSystemPrompt.value = agent.systemInstruction;
       agentTempInput.value = agent.temperature;
       tempValue.textContent = agent.temperature;
       agentSearchToggle.checked = !!agent.useSearch;
@@ -332,11 +471,11 @@
 
     function renderChatHistory(agent) {
       chatContainer.innerHTML = '';
-      if (agent.history.length === 0) {
+      if (!agent.history || agent.history.length === 0) {
         chatContainer.innerHTML = `
           <div class="m-auto text-center max-w-sm px-4 text-slate-500 text-xs sm:text-sm">
             <p class="mb-1 text-slate-300 font-medium">Чат с агентом «${escapeHtml(agent.name)}»</p>
-            <p>История этого диалога изолирована от других агентов. Напишите сообщение ниже.</p>
+            <p>История синхронизируется между всеми вашими устройствами.</p>
           </div>`;
         return;
       }
@@ -367,13 +506,12 @@
       chatContainer.scrollTop = chatContainer.scrollHeight;
     }
 
-    // --- АВТО-ВЫСОТА ПОЛЯ ВВОДА ---
     messageInput.addEventListener('input', function () {
       this.style.height = 'auto';
       this.style.height = Math.min(this.scrollHeight, 144) + 'px';
     });
 
-    // --- ВЗАИМОДЕЙСТВИЕ С GEMINI REST API ---
+    // --- ЗАПРОС К GEMINI API ---
     async function sendMessageToGemini(userText) {
       if (!state.apiKey) {
         alert('Сначала вставьте ваш Gemini API Key в боковом меню.');
@@ -477,7 +615,7 @@
         alert('Нельзя удалить последнего агента.');
         return;
       }
-      if (!confirm('Удалить этого агента и всю его историю?')) return;
+      if (!confirm('Удалить этого агента и всю его историю из облака?')) return;
       state.agents = state.agents.filter(a => a.id !== state.activeAgentId);
       state.activeAgentId = state.agents[0].id;
       saveState();
@@ -558,7 +696,6 @@
     });
 
     messageInput.addEventListener('keydown', (e) => {
-      // На десктопе Enter отправляет сообщение, на мобильных устройствах Enter делает перенос строки
       if (e.key === 'Enter' && !e.shiftKey && window.innerWidth >= 768) {
         e.preventDefault();
         document.getElementById('chatForm').dispatchEvent(new Event('submit'));
@@ -588,7 +725,7 @@
             saveState();
             renderAll();
             closeDrawers();
-            alert('Агенты и история успешно восстановлены!');
+            alert('Агенты и история восстановлены и загружены в облако!');
           }
         } catch (err) {
           alert('Ошибка чтения JSON файла.');
@@ -600,8 +737,6 @@
     function escapeHtml(str) {
       return str.replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
     }
-
-    renderAll();
   </script>
 </body>
 </html>
