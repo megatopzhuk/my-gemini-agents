@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content" />
   <title>Gemini Multi-Agent Studio (Cloud)</title>
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -217,11 +217,14 @@
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
     import { 
       getAuth, signInWithEmailAndPassword, GoogleAuthProvider, 
-      signInWithPopup, onAuthStateChanged, signOut 
+      signInWithRedirect, getRedirectResult, onAuthStateChanged, signOut 
     } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
     import { 
       getFirestore, doc, getDoc, setDoc, onSnapshot 
     } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
+
+    // Твой прокси на Cloudflare Workers для обхода геоблока
+    const GEMINI_BASE_URL = "https://gemini-proxy.megatop-zhuk.workers.dev";
 
     const firebaseConfig = {
       apiKey: "AIzaSyC7gTpUVBwQcvfTWR7DzC6FWvx--bT4XhQ",
@@ -301,11 +304,16 @@
       }
     });
 
+    getRedirectResult(auth).catch((err) => {
+      authError.textContent = 'Ошибка входа Google: ' + err.message;
+      authError.classList.remove('hidden');
+    });
+
     document.getElementById('googleLoginBtn').addEventListener('click', async () => {
       authError.classList.add('hidden');
       const provider = new GoogleAuthProvider();
       try {
-        await signInWithPopup(auth, provider);
+        await signInWithRedirect(auth, provider);
       } catch (err) {
         authError.textContent = 'Ошибка входа Google: ' + err.message;
         authError.classList.remove('hidden');
@@ -511,7 +519,7 @@
       this.style.height = Math.min(this.scrollHeight, 144) + 'px';
     });
 
-    // --- ЗАПРОС К GEMINI API ---
+    // --- ЗАПРОС К GEMINI API ЧЕРЕЗ ПРОКСИ ---
     async function sendMessageToGemini(userText) {
       if (!state.apiKey) {
         alert('Сначала вставьте ваш Gemini API Key в боковом меню.');
@@ -555,7 +563,7 @@
           requestBody.tools = [{ google_search: {} }];
         }
 
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${agent.model}:generateContent?key=${encodeURIComponent(state.apiKey)}`;
+        const url = `${GEMINI_BASE_URL}/v1beta/models/${agent.model}:generateContent?key=${encodeURIComponent(state.apiKey)}`;
         
         const response = await fetch(url, {
           method: 'POST',
@@ -634,7 +642,7 @@
     document.getElementById('refreshModelsBtn').addEventListener('click', async () => {
       if (!state.apiKey) return alert('Сначала вставьте API Key в левом меню.');
       try {
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(state.apiKey)}`);
+        const res = await fetch(`${GEMINI_BASE_URL}/v1beta/models?key=${encodeURIComponent(state.apiKey)}`);
         const data = await res.json();
         const models = (data.models || [])
           .filter(m => m.supportedGenerationMethods?.includes('generateContent'))
