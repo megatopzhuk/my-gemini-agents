@@ -25,21 +25,37 @@ jobs:
 
       - name: Prepare web assets and Capacitor
         run: |
-          mkdir -p www
+          mkdir -p www assets
           cp index.html www/
+          if [ -f icon.png ]; then cp icon.png assets/icon.png; fi
           npm init -y
-          npm install @capacitor/core @capacitor/cli @capacitor/android
-          npx cap init "Gemini Agents" "com.my.geminiagents" --web-dir=www
+          npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor/assets
+          npx cap init "Gemini Agents" "com.zhukaa.geminiagents" --web-dir=www
           node -e '
             const fs = require("fs");
             const cfg = JSON.parse(fs.readFileSync("capacitor.config.json", "utf8"));
+            cfg.backgroundColor = "#020617";
             cfg.server = {
-              url: "https://megatopzhuk.github.io/my-gemini-agents/",
-              androidScheme: "https"
+              url: "https://zhukaa.github.io/my-gemini-agents/",
+              androidScheme: "https",
+              cleartext: true,
+              allowNavigation: [
+                "zhukaa.github.io",
+                "*.github.io",
+                "*.firebaseapp.com",
+                "*.googleapis.com",
+                "*.gstatic.com",
+                "*.workers.dev"
+              ]
+            };
+            cfg.android = {
+              backgroundColor: "#020617",
+              allowMixedContent: true
             };
             fs.writeFileSync("capacitor.config.json", JSON.stringify(cfg, null, 2));
           '
           npx cap add android
+          if [ -f assets/icon.png ]; then npx capacitor-assets generate --android; fi
           echo 'dependencies { implementation(platform("org.jetbrains.kotlin:kotlin-bom:1.8.22")) }' >> android/app/build.gradle
           sed -i 's/<application/<uses-permission android:name="android.permission.INTERNET" \/>\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" \/>\n    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" \/>\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" \/>\n    <application/' android/app/src/main/AndroidManifest.xml
 
