@@ -26,36 +26,58 @@ jobs:
       - name: Prepare web assets and Capacitor
         run: |
           mkdir -p www assets
-          cp index.html www/
-          if [ -f icon.png ]; then cp icon.png assets/icon.png; fi
+          cp index.html www/fallback.html
+          cat << 'EOF' > www/index.html
+          <!DOCTYPE html>
+          <html lang="ru">
+          <head>
+            <meta charset="UTF-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+            <style>
+              body { background: #020617; color: #94a3b8; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+              .spinner { width: 32px; height: 32px; border: 3px solid #1e293b; border-top-color: #3b82f6; border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 12px; }
+              @keyframes spin { to { transform: rotate(360deg); } }
+            </style>
+          </head>
+          <body>
+            <div class="spinner"></div>
+            <div id="status">Загрузка актуальной версии...</div>
+            <script>
+              const REMOTE_URL = "https://zhukaa.github.io/my-gemini-agents/index.html?t=" + Date.now();
+              fetch(REMOTE_URL, { cache: "no-store" })
+                .then(r => {
+                  if (!r.ok) throw new Error("HTTP " + r.status);
+                  return r.text();
+                })
+                .then(html => {
+                  if (!html.includes("firebaseConfig")) throw new Error("Invalid HTML");
+                  document.open();
+                  document.write(html);
+                  document.close();
+                })
+                .catch(err => {
+                  document.getElementById("status").textContent = "Офлайн-режим (" + err.message + ")...";
+                  setTimeout(() => { window.location.replace("fallback.html"); }, 800);
+                });
+            </script>
+          </body>
+          </html>
+          EOF
+
+          if [ -f icon.png ]; then
+            cp icon.png assets/icon-only.png
+            cp icon.png assets/icon-foreground.png
+          fi
+
           npm init -y
           npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor/assets
           npx cap init "Gemini Agents" "com.zhukaa.geminiagents" --web-dir=www
-          node -e '
-            const fs = require("fs");
-            const cfg = JSON.parse(fs.readFileSync("capacitor.config.json", "utf8"));
-            cfg.backgroundColor = "#020617";
-            cfg.server = {
-              url: "https://zhukaa.github.io/my-gemini-agents/",
-              androidScheme: "https",
-              cleartext: true,
-              allowNavigation: [
-                "zhukaa.github.io",
-                "*.github.io",
-                "*.firebaseapp.com",
-                "*.googleapis.com",
-                "*.gstatic.com",
-                "*.workers.dev"
-              ]
-            };
-            cfg.android = {
-              backgroundColor: "#020617",
-              allowMixedContent: true
-            };
-            fs.writeFileSync("capacitor.config.json", JSON.stringify(cfg, null, 2));
-          '
           npx cap add android
-          if [ -f assets/icon.png ]; then npx capacitor-assets generate --android; fi
+
+          if [ -f assets/icon-only.png ]; then
+            npx capacitor-assets generate --android --iconBackgroundColor '#020617' --iconBackgroundColorDark '#020617'
+          fi
+
           echo 'dependencies { implementation(platform("org.jetbrains.kotlin:kotlin-bom:1.8.22")) }' >> android/app/build.gradle
           sed -i 's/<application/<uses-permission android:name="android.permission.INTERNET" \/>\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" \/>\n    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" \/>\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" \/>\n    <application/' android/app/src/main/AndroidManifest.xml
 
