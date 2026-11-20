@@ -31,6 +31,7 @@ jobs:
           npm install @capacitor/core @capacitor/cli @capacitor/android
           npx cap init "Gemini Agents" "com.my.geminiagents" --web-dir=www
           npx cap add android
+          echo 'dependencies { implementation(platform("org.jetbrains.kotlin:kotlin-bom:1.8.22")) }' >> android/app/build.gradle
 
       - name: Build Debug APK
         run: |
