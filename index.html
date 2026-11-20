@@ -11,6 +11,8 @@
   <!-- Highlight.js для подсветки кода -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <!-- SheetJS для чтения Excel (.xlsx / .xls) прямо в браузере -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <style>
     .app-height { height: 100vh; height: 100dvh; }
     .prose pre { background: #1e293b; padding: 10px; border-radius: 8px; overflow-x: auto; margin: 8px 0; font-size: 0.85em; }
@@ -141,18 +143,43 @@
 
     <div id="chatContainer" class="flex-1 overflow-y-auto px-3 py-4 sm:p-6 flex flex-col gap-3 sm:gap-4"></div>
 
+    <!-- НИЖНЯЯ ПАНЕЛЬ ВВОДА С ПРЕВЬЮ ВЛОЖЕНИЙ -->
     <div class="p-2.5 sm:p-4 border-t border-slate-800 bg-slate-900/60 shrink-0">
-      <form id="chatForm" class="max-w-4xl mx-auto flex items-end gap-2">
-        <textarea id="messageInput" rows="1" placeholder="Сообщение агенту..."
-                  class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500 resize-none max-h-36 overflow-y-auto"></textarea>
-        <button type="submit" id="sendBtn"
-                class="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-medium px-3.5 sm:px-5 h-10 rounded-xl transition shrink-0 flex items-center justify-center">
-          <span class="hidden sm:inline text-sm">Отправить</span>
-          <svg class="w-5 h-5 sm:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
-          </svg>
-        </button>
-      </form>
+      <div class="max-w-4xl mx-auto flex flex-col gap-2">
+        <!-- Плашка прикрепленного файла -->
+        <div id="attachmentPreviewBar" class="hidden items-center justify-between bg-slate-900 border border-blue-500/40 rounded-xl px-3 py-2 text-xs">
+          <div class="flex items-center gap-2 min-w-0">
+            <span id="attachmentIcon" class="text-base">📎</span>
+            <span id="attachmentName" class="text-slate-200 font-medium truncate">file.pdf</span>
+            <span id="attachmentSize" class="text-slate-400 shrink-0"></span>
+          </div>
+          <button type="button" id="removeAttachmentBtn" class="text-slate-400 hover:text-red-400 px-2 py-0.5 font-bold">✕</button>
+        </div>
+
+        <form id="chatForm" class="flex items-end gap-2">
+          <!-- Скрытый input для выбора файлов и фото -->
+          <input type="file" id="fileAttachInput" class="hidden"
+                 accept="image/*,.pdf,.txt,.csv,.json,.md,.html,.xlsx,.xls,.py,.js,.sql,.xml" />
+          
+          <button type="button" id="attachBtn" title="Прикрепить фото, PDF, Excel или текст"
+                  class="bg-slate-800 hover:bg-slate-700 text-slate-200 h-10 w-10 rounded-xl transition shrink-0 flex items-center justify-center border border-slate-700">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
+            </svg>
+          </button>
+
+          <textarea id="messageInput" rows="1" placeholder="Сообщение или вопрос по файлу..."
+                    class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500 resize-none max-h-36 overflow-y-auto"></textarea>
+          
+          <button type="submit" id="sendBtn"
+                  class="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-medium px-3.5 sm:px-5 h-10 rounded-xl transition shrink-0 flex items-center justify-center">
+            <span class="hidden sm:inline text-sm">Отправить</span>
+            <svg class="w-5 h-5 sm:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+            </svg>
+          </button>
+        </form>
+      </div>
     </div>
   </main>
 
@@ -209,7 +236,7 @@
     </div>
 
     <div class="text-[11px] text-slate-500 mt-auto pt-2">
-      Все изменения автоматически синхронизируются с Firebase Cloud.
+      Поддерживаются фото, PDF, Excel (.xlsx) и текст. Ответы можно скачивать в файлы.
     </div>
   </aside>
 
@@ -224,7 +251,6 @@
       getFirestore, doc, getDoc, setDoc, onSnapshot 
     } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
 
-    // Прокси на Cloudflare Workers для обхода региональных ограничений
     const GEMINI_BASE_URL = "https://gemini-proxy.megatop-zhuk.workers.dev";
 
     const firebaseConfig = {
@@ -265,6 +291,7 @@
     let currentUser = null;
     let unsubscribeSnapshot = null;
     let saveTimeout = null;
+    let pendingAttachment = null; // Текущий прикрепленный файл перед отправкой
 
     let state = {
       apiKey: '',
@@ -290,6 +317,126 @@
     const agentSearchToggle = document.getElementById('agentSearchToggle');
     const messageInput = document.getElementById('messageInput');
     const sendBtn = document.getElementById('sendBtn');
+
+    // Элементы вложений
+    const attachBtn = document.getElementById('attachBtn');
+    const fileAttachInput = document.getElementById('fileAttachInput');
+    const attachmentPreviewBar = document.getElementById('attachmentPreviewBar');
+    const attachmentIcon = document.getElementById('attachmentIcon');
+    const attachmentName = document.getElementById('attachmentName');
+    const attachmentSize = document.getElementById('attachmentSize');
+    const removeAttachmentBtn = document.getElementById('removeAttachmentBtn');
+
+    // --- ОБРАБОТКА ВЛОЖЕНИЙ (ФОТО, PDF, EXCEL, ТЕКСТ) ---
+    attachBtn.addEventListener('click', () => fileAttachInput.click());
+
+    removeAttachmentBtn.addEventListener('click', clearPendingAttachment);
+
+    function clearPendingAttachment() {
+      pendingAttachment = null;
+      fileAttachInput.value = '';
+      attachmentPreviewBar.classList.add('hidden');
+      attachmentPreviewBar.classList.remove('flex');
+    }
+
+    fileAttachInput.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      // Лимит 15 МБ для стабильной отправки через браузер/Worker
+      if (file.size > 15 * 1024 * 1024) {
+        alert('Файл слишком большой. Максимальный размер — 15 МБ.');
+        clearPendingAttachment();
+        return;
+      }
+
+      const ext = file.name.split('.').pop().toLowerCase();
+      attachmentName.textContent = file.name;
+      attachmentSize.textContent = `(${(file.size / 1024).toFixed(1)} КБ)`;
+      attachmentPreviewBar.classList.remove('hidden');
+      attachmentPreviewBar.classList.add('flex');
+
+      try {
+        if (file.type.startsWith('image/') || file.type === 'application/pdf') {
+          attachmentIcon.textContent = file.type.startsWith('image/') ? '🖼️' : '📄';
+          const base64Data = await readFileAsBase64(file);
+          pendingAttachment = {
+            name: file.name,
+            kind: 'inline',
+            mimeType: file.type,
+            data: base64Data
+          };
+        } else if (ext === 'xlsx' || ext === 'xls') {
+          attachmentIcon.textContent = '📊';
+          const arrayBuffer = await file.arrayBuffer();
+          const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+          let combinedText = '';
+          workbook.SheetNames.forEach(sheetName => {
+            const csv = XLSX.utils.sheet_to_csv(workbook.Sheets[sheetName]);
+            combinedText += `\n--- Лист: ${sheetName} ---\n${csv}\n`;
+          });
+          pendingAttachment = {
+            name: file.name,
+            kind: 'text',
+            textContent: combinedText
+          };
+        } else {
+          attachmentIcon.textContent = '📝';
+          const textContent = await file.text();
+          pendingAttachment = {
+            name: file.name,
+            kind: 'text',
+            textContent: textContent
+          };
+        }
+      } catch (err) {
+        alert('Не удалось прочитать файл: ' + err.message);
+        clearPendingAttachment();
+      }
+    });
+
+    function readFileAsBase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const base64 = reader.result.split(',')[1];
+          resolve(base64);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    // --- УНИВЕРСАЛЬНОЕ СОХРАНЕНИЕ ФАЙЛОВ (БРАУЗЕР + ANDROID APK) ---
+    window.downloadGeneratedFile = async function(filename, content, mimeType = 'text/plain;charset=utf-8') {
+      try {
+        // Проверяем, запущено ли приложение внутри Android Capacitor с нативным Share
+        if (window.Capacitor && window.Capacitor.isNativePlatform()) {
+          const blob = new Blob([content], { type: mimeType });
+          const file = new File([blob], filename, { type: mimeType });
+          if (navigator.canShare && navigator.canShare({ files: [file] })) {
+            await navigator.share({
+              files: [file],
+              title: filename
+            });
+            return;
+          }
+        }
+      } catch (err) {
+        console.warn('Native share fallback to blob:', err);
+      }
+
+      // Стандартное скачивание для браузера
+      const blob = new Blob([content], { type: mimeType });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    };
 
     // --- АВТОРИЗАЦИЯ ---
     document.getElementById('emailLoginForm').addEventListener('submit', async (e) => {
@@ -484,12 +631,12 @@
         chatContainer.innerHTML = `
           <div class="m-auto text-center max-w-sm px-4 text-slate-500 text-xs sm:text-sm">
             <p class="mb-1 text-slate-300 font-medium">Чат с агентом «${escapeHtml(agent.name)}»</p>
-            <p>История синхронизируется между всеми вашими устройствами.</p>
+            <p>Прикрепляйте фото, PDF или Excel через 📎. Любой ответ можно скачать файлом.</p>
           </div>`;
         return;
       }
 
-      agent.history.forEach(msg => {
+      agent.history.forEach((msg, msgIndex) => {
         const isUser = msg.role === 'user';
         const wrapper = document.createElement('div');
         wrapper.className = `flex flex-col max-w-[90%] sm:max-w-3xl ${isUser ? 'self-end items-end' : 'self-start items-start'}`;
@@ -503,12 +650,48 @@
 
         if (isUser) {
           bubble.textContent = msg.text;
+          wrapper.appendChild(bubble);
         } else {
-          bubble.innerHTML = marked.parse(msg.text);
+          // Ищем специальные блоки ```file:имя_файла.ext ... ```
+          const fileBlocks = [];
+          const processedText = msg.text.replace(/```file:([^\n]+)\n([\s\S]*?)```/g, (match, fname, fcontent) => {
+            const cleanName = fname.trim();
+            fileBlocks.push({ name: cleanName, content: fcontent });
+            return `\n> 📄 **Сформирован файл:** \`${cleanName}\`\n`;
+          });
+
+          bubble.innerHTML = marked.parse(processedText);
           bubble.querySelectorAll('pre code').forEach(block => hljs.highlightElement(block));
+          wrapper.appendChild(bubble);
+
+          // Панель кнопок скачивания под ответом агента
+          const actionsRow = document.createElement('div');
+          actionsRow.className = 'flex flex-wrap items-center gap-2 mt-1.5 px-1';
+
+          // Кнопки для сгенерированных файлов по запросу
+          fileBlocks.forEach(fb => {
+            const fileBtn = document.createElement('button');
+            fileBtn.type = 'button';
+            fileBtn.className = 'text-[11px] bg-blue-600/20 hover:bg-blue-600/40 text-blue-300 border border-blue-500/40 px-2.5 py-1 rounded-lg transition flex items-center gap-1';
+            fileBtn.innerHTML = `<span>⬇️ Скачать ${escapeHtml(fb.name)}</span>`;
+            fileBtn.onclick = () => window.downloadGeneratedFile(fb.name, fb.content);
+            actionsRow.appendChild(fileBtn);
+          });
+
+          // Кнопка сохранения всего ответа в Markdown/TXT
+          const saveMdBtn = document.createElement('button');
+          saveMdBtn.type = 'button';
+          saveMdBtn.className = 'text-[11px] bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800 px-2 py-1 rounded-lg transition';
+          saveMdBtn.textContent = '💾 Сохранить ответ (.md)';
+          saveMdBtn.onclick = () => {
+            const stamp = new Date().toISOString().slice(0, 10);
+            window.downloadGeneratedFile(`${agent.name}-${stamp}-${msgIndex + 1}.md`, msg.text, 'text/markdown;charset=utf-8');
+          };
+          actionsRow.appendChild(saveMdBtn);
+
+          wrapper.appendChild(actionsRow);
         }
 
-        wrapper.appendChild(bubble);
         chatContainer.appendChild(wrapper);
       });
 
@@ -520,7 +703,7 @@
       this.style.height = Math.min(this.scrollHeight, 144) + 'px';
     });
 
-    // --- ЗАПРОС К GEMINI API ЧЕРЕЗ ПРОКСИ С АВТО-ПОВТОРОМ ---
+    // --- ЗАПРОС К GEMINI API ЧЕРЕЗ ПРОКСИ ---
     async function sendMessageToGemini(userText) {
       if (!state.apiKey) {
         alert('Сначала вставьте ваш Gemini API Key в боковом меню.');
@@ -529,46 +712,84 @@
       }
 
       const agent = getActiveAgent();
-      agent.history.push({ role: 'user', text: userText });
+      const attachment = pendingAttachment;
+      clearPendingAttachment();
+
+      // Формируем текст для сохранения в облачную историю (без тяжелого base64)
+      let historyDisplayText = userText;
+      if (attachment) {
+        const badge = `📎 [${attachment.name}]`;
+        historyDisplayText = userText ? `${badge}\n${userText}` : badge;
+      }
+
+      agent.history.push({ role: 'user', text: historyDisplayText });
       saveState();
       renderChatHistory(agent);
       renderAgentsList();
 
       const loadingDiv = document.createElement('div');
       loadingDiv.className = 'self-start bg-slate-900 border border-slate-800 text-slate-400 px-3.5 py-2 rounded-2xl text-xs animate-pulse';
-      loadingDiv.textContent = `${agent.name} печатает...`;
+      loadingDiv.textContent = attachment
+        ? `${agent.name} изучает файл «${attachment.name}»...`
+        : `${agent.name} печатает...`;
       chatContainer.appendChild(loadingDiv);
       chatContainer.scrollTop = chatContainer.scrollHeight;
       sendBtn.disabled = true;
 
-      const maxRetries = 3; // Максимум 3 попытки при временной перегрузке
-      const retryDelayMs = 2000; // Пауза 2 секунды между попытками
+      const maxRetries = 3;
+      const retryDelayMs = 2000;
 
       try {
-        const contents = agent.history.map(item => ({
+        // Собираем историю для API
+        const contents = agent.history.slice(0, -1).map(item => ({
           role: item.role === 'user' ? 'user' : 'model',
           parts: [{ text: item.text }]
         }));
+
+        // Текущее сообщение с учетом прикрепленного файла
+        const currentParts = [];
+        if (attachment) {
+          if (attachment.kind === 'inline') {
+            currentParts.push({
+              inlineData: {
+                mimeType: attachment.mimeType,
+                data: attachment.data
+              }
+            });
+          } else if (attachment.kind === 'text') {
+            currentParts.push({
+              text: `Содержимое прикрепленного файла "${attachment.name}":\n\n${attachment.textContent}`
+            });
+          }
+        }
+        currentParts.push({
+          text: userText || 'Проанализируй прикрепленный файл и дай подробный ответ.'
+        });
+
+        contents.push({
+          role: 'user',
+          parts: currentParts
+        });
 
         const generationConfig = {
           temperature: parseFloat(agent.temperature)
         };
 
-        // Отключаем долгий thinking только для поддерживающих его не-lite моделей 3-го поколения
         if (!agent.model.includes('lite') && agent.model.includes('gemini-3')) {
           generationConfig.thinkingConfig = { thinkingBudget: 0 };
         }
 
+        // Добавляем системную подсказку для генерации файлов по запросу пользователя
+        const fileExportRule = '\n\n[Системное правило вывода файлов]: Если пользователь просит прислать результат файлом (CSV, JSON, TXT, HTML, SQL, скрипт или документ), оформи содержимое файла в отдельный блок кода с префиксом file:имя_файла.расширение (например: ```file:report.csv\\n...\\n```), чтобы приложение создало кнопку скачивания.';
+        const combinedSystemPrompt = ((agent.systemInstruction || '').trim() + fileExportRule).trim();
+
         const requestBody = {
           contents: contents,
-          generationConfig: generationConfig
+          generationConfig: generationConfig,
+          systemInstruction: {
+            parts: [{ text: combinedSystemPrompt }]
+          }
         };
-
-        if (agent.systemInstruction && agent.systemInstruction.trim()) {
-          requestBody.systemInstruction = {
-            parts: [{ text: agent.systemInstruction.trim() }]
-          };
-        }
 
         if (agent.useSearch) {
           requestBody.tools = [{ google_search: {} }];
@@ -607,7 +828,7 @@
             /high demand|overloaded|try again later|unavailable/i.test(errMsg);
 
           if (isOverloaded && attempt < maxRetries) {
-            loadingDiv.textContent = `${agent.name}: высокая нагрузка на сервер, повтор через 2 сек (попытка ${attempt + 1}/${maxRetries})...`;
+            loadingDiv.textContent = `${agent.name}: высокая нагрузка, повтор через 2 сек (попытка ${attempt + 1}/${maxRetries})...`;
             await new Promise(resolve => setTimeout(resolve, retryDelayMs));
             continue;
           }
@@ -735,7 +956,7 @@
     document.getElementById('chatForm').addEventListener('submit', (e) => {
       e.preventDefault();
       const text = messageInput.value.trim();
-      if (!text) return;
+      if (!text && !pendingAttachment) return;
       messageInput.value = '';
       messageInput.style.height = 'auto';
       sendMessageToGemini(text);
@@ -750,12 +971,11 @@
 
     document.getElementById('exportBtn').addEventListener('click', () => {
       const exportData = { ...state, apiKey: '' };
-      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `gemini-agents-backup-${new Date().toISOString().slice(0,10)}.json`;
-      a.click();
+      window.downloadGeneratedFile(
+        `gemini-agents-backup-${new Date().toISOString().slice(0,10)}.json`,
+        JSON.stringify(exportData, null, 2),
+        'application/json;charset=utf-8'
+      );
     });
 
     document.getElementById('importInput').addEventListener('change', (e) => {
