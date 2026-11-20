@@ -123,7 +123,7 @@
 
         <div class="min-w-0">
           <h2 id="currentAgentTitle" class="font-semibold text-sm sm:text-base text-white truncate">Агент</h2>
-          <p id="currentAgentSubtitle" class="text-[11px] sm:text-xs text-slate-400 truncate">gemini-3.8-flash</p>
+          <p id="currentAgentSubtitle" class="text-[11px] sm:text-xs text-slate-400 truncate">gemini-3.5-flash-lite</p>
         </div>
       </div>
 
@@ -177,6 +177,7 @@
         <button id="refreshModelsBtn" type="button" class="text-[11px] text-blue-400 hover:underline">Обновить список</button>
       </div>
       <select id="agentModelSelect" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 text-sm">
+        <option value="gemini-3.5-flash-lite">gemini-3.5-flash-lite</option>
         <option value="gemini-3.8-flash">gemini-3.8-flash</option>
         <option value="gemini-2.5-flash">gemini-2.5-flash</option>
         <option value="gemini-2.5-pro">gemini-2.5-pro</option>
@@ -244,7 +245,7 @@
       {
         id: 'agent-analyst',
         name: 'CRM-Аналитик',
-        model: 'gemini-3.8-flash',
+        model: 'gemini-3.5-flash-lite',
         systemInstruction: 'Ты - старший CRM и маркетинговый аналитик. Отвечай структурно, опирайся на цифры, когортный анализ, LTV и статистическую значимость. Избегай воды.',
         temperature: 0.2,
         useSearch: false,
@@ -253,7 +254,7 @@
       {
         id: 'agent-copywriter',
         name: 'Email-Копирайтер',
-        model: 'gemini-3.8-flash',
+        model: 'gemini-3.5-flash-lite',
         systemInstruction: 'Ты - сильный коммерческий редактор и email-маркетолог. Пиши цепляющие темы писем, структурированный текст и сильные CTA.',
         temperature: 0.8,
         useSearch: false,
@@ -519,7 +520,7 @@
       this.style.height = Math.min(this.scrollHeight, 144) + 'px';
     });
 
-    // --- ЗАПРОС К GEMINI API ЧЕРЕЗ ПРОКСИ С АВТО-ПОВТОРОМ И БЫСТРЫМ ОТВЕТОМ ---
+    // --- ЗАПРОС К GEMINI API ЧЕРЕЗ ПРОКСИ С АВТО-ПОВТОРОМ ---
     async function sendMessageToGemini(userText) {
       if (!state.apiKey) {
         alert('Сначала вставьте ваш Gemini API Key в боковом меню.');
@@ -549,14 +550,18 @@
           parts: [{ text: item.text }]
         }));
 
+        const generationConfig = {
+          temperature: parseFloat(agent.temperature)
+        };
+
+        // Отключаем долгий thinking только для поддерживающих его не-lite моделей 3-го поколения
+        if (!agent.model.includes('lite') && agent.model.includes('gemini-3')) {
+          generationConfig.thinkingConfig = { thinkingBudget: 0 };
+        }
+
         const requestBody = {
           contents: contents,
-          generationConfig: {
-            temperature: parseFloat(agent.temperature),
-            thinkingConfig: {
-              thinkingBudget: 0
-            }
-          }
+          generationConfig: generationConfig
         };
 
         if (agent.systemInstruction && agent.systemInstruction.trim()) {
@@ -638,7 +643,7 @@
       const newAgent = {
         id: 'agent-' + Date.now(),
         name: `Агент #${state.agents.length + 1}`,
-        model: 'gemini-3.8-flash',
+        model: 'gemini-3.5-flash-lite',
         systemInstruction: 'Ты - полезный ИИ-ассистент.',
         temperature: 0.7,
         useSearch: false,
