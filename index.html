@@ -223,7 +223,7 @@
       getFirestore, doc, getDoc, setDoc, onSnapshot 
     } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
 
-    // Твой прокси на Cloudflare Workers для обхода геоблока
+    // Прокси на Cloudflare Workers для обхода региональных ограничений
     const GEMINI_BASE_URL = "https://gemini-proxy.megatop-zhuk.workers.dev";
 
     const firebaseConfig = {
@@ -519,7 +519,7 @@
       this.style.height = Math.min(this.scrollHeight, 144) + 'px';
     });
 
-    // --- ЗАПРОС К GEMINI API ЧЕРЕЗ ПРОКСИ ---
+    // --- ЗАПРОС К GEMINI API ЧЕРЕЗ ПРОКСИ С АВТО-ПОВТОРОМ И БЫСТРЫМ ОТВЕТОМ ---
     async function sendMessageToGemini(userText) {
       if (!state.apiKey) {
         alert('Сначала вставьте ваш Gemini API Key в боковом меню.');
@@ -540,6 +540,9 @@
       chatContainer.scrollTop = chatContainer.scrollHeight;
       sendBtn.disabled = true;
 
+      const maxRetries = 3; // Максимум 3 попытки при временной перегрузке
+      const retryDelayMs = 2000; // Пауза 2 секунды между попытками
+
       try {
         const contents = agent.history.map(item => ({
           role: item.role === 'user' ? 'user' : 'model',
@@ -549,7 +552,10 @@
         const requestBody = {
           contents: contents,
           generationConfig: {
-            temperature: parseFloat(agent.temperature)
+            temperature: parseFloat(agent.temperature),
+            thinkingConfig: {
+              thinkingBudget: 0
+            }
           }
         };
 
@@ -564,17 +570,44 @@
         }
 
         const url = `${GEMINI_BASE_URL}/v1beta/models/${agent.model}:generateContent?key=${encodeURIComponent(state.apiKey)}`;
-        
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(requestBody)
-        });
+        let data = null;
 
-        const data = await response.json();
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+          const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestBody)
+          });
 
-        if (!response.ok) {
-          throw new Error(data.error?.message || `HTTP Error ${response.status}`);
+          const rawText = await response.text();
+          try {
+            data = JSON.parse(rawText);
+          } catch (e) {
+            if ((response.status === 524 || response.status === 502 || response.status === 504) && attempt < maxRetries) {
+              loadingDiv.textContent = `${agent.name}: таймаут шлюза (${response.status}), повтор через 2 сек (${attempt + 1}/${maxRetries})...`;
+              await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+              continue;
+            }
+            throw new Error(`Сервер вернул некорректный ответ (${response.status}): ${rawText.slice(0, 100)}`);
+          }
+
+          if (response.ok) {
+            break;
+          }
+
+          const errMsg = data.error?.message || `HTTP Error ${response.status}`;
+          const isOverloaded =
+            response.status === 503 ||
+            response.status === 429 ||
+            /high demand|overloaded|try again later|unavailable/i.test(errMsg);
+
+          if (isOverloaded && attempt < maxRetries) {
+            loadingDiv.textContent = `${agent.name}: высокая нагрузка на сервер, повтор через 2 сек (попытка ${attempt + 1}/${maxRetries})...`;
+            await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+            continue;
+          }
+
+          throw new Error(errMsg);
         }
 
         const replyText = data.candidates?.[0]?.content?.parts
