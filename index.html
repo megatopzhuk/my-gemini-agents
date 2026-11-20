@@ -239,4 +239,369 @@
     const tempValue = document.getElementById('tempValue');
     const agentSearchToggle = document.getElementById('agentSearchToggle');
     const messageInput = document.getElementById('messageInput');
-    const send
+    const sendBtn = document.getElementById('sendBtn');
+
+    // Мобильные шторки
+    const leftSidebar = document.getElementById('leftSidebar');
+    const settingsPanel = document.getElementById('settingsPanel');
+    const mobileBackdrop = document.getElementById('mobileBackdrop');
+
+    function closeDrawers() {
+      leftSidebar.classList.add('-translate-x-full');
+      settingsPanel.classList.add('translate-x-full');
+      mobileBackdrop.classList.add('hidden');
+    }
+
+    function openLeftDrawer() {
+      closeDrawers();
+      leftSidebar.classList.remove('-translate-x-full');
+      mobileBackdrop.classList.remove('hidden');
+    }
+
+    function openRightDrawer() {
+      if (window.innerWidth >= 1024) {
+        // На десктопе просто скрываем/показываем правую колонку
+        settingsPanel.classList.toggle('lg:hidden');
+      } else {
+        closeDrawers();
+        settingsPanel.classList.remove('translate-x-full');
+        mobileBackdrop.classList.remove('hidden');
+      }
+    }
+
+    document.getElementById('openLeftBtn').addEventListener('click', openLeftDrawer);
+    document.getElementById('closeLeftBtn').addEventListener('click', closeDrawers);
+    document.getElementById('toggleSettingsBtn').addEventListener('click', openRightDrawer);
+    document.getElementById('closeRightBtn').addEventListener('click', closeDrawers);
+    mobileBackdrop.addEventListener('click', closeDrawers);
+
+    // --- РЕНДЕР ИНТЕРФЕЙСА ---
+    function renderAll() {
+      apiKeyInput.value = state.apiKey || '';
+      renderAgentsList();
+      renderActiveAgent();
+    }
+
+    function renderAgentsList() {
+      agentsListEl.innerHTML = '';
+      state.agents.forEach(agent => {
+        const isActive = agent.id === state.activeAgentId;
+        const btn = document.createElement('button');
+        btn.className = `text-left px-3 py-2.5 rounded-lg transition flex flex-col gap-0.5 ${
+          isActive ? 'bg-blue-600/20 border border-blue-500/50 text-white' : 'hover:bg-slate-800/70 text-slate-300 border border-transparent'
+        }`;
+        btn.innerHTML = `
+          <span class="font-medium text-sm truncate">${escapeHtml(agent.name)}</span>
+          <span class="text-[11px] text-slate-400 truncate">${agent.model} • Сообщений: ${agent.history.length}</span>
+        `;
+        btn.onclick = () => {
+          state.activeAgentId = agent.id;
+          saveState();
+          renderAll();
+          closeDrawers(); // На телефоне закрываем меню сразу после выбора агента
+        };
+        agentsListEl.appendChild(btn);
+      });
+    }
+
+    function renderActiveAgent() {
+      const agent = getActiveAgent();
+      if (!agent) return;
+
+      currentAgentTitle.textContent = agent.name;
+      currentAgentSubtitle.textContent = `${agent.model} • T:${agent.temperature}${agent.useSearch ? ' • Search' : ''}`;
+
+      agentNameInput.value = agent.name;
+      
+      // Если модели нет в списке опций, добавляем её динамически
+      if (!Array.from(agentModelSelect.options).some(opt => opt.value === agent.model)) {
+        const opt = document.createElement('option');
+        opt.value = agent.model;
+        opt.textContent = agent.model;
+        agentModelSelect.appendChild(opt);
+      }
+      agentModelSelect.value = agent.model;
+
+      agentSystemPrompt.value = agent.systemInstruction;
+      agentTempInput.value = agent.temperature;
+      tempValue.textContent = agent.temperature;
+      agentSearchToggle.checked = !!agent.useSearch;
+
+      renderChatHistory(agent);
+    }
+
+    function renderChatHistory(agent) {
+      chatContainer.innerHTML = '';
+      if (agent.history.length === 0) {
+        chatContainer.innerHTML = `
+          <div class="m-auto text-center max-w-sm px-4 text-slate-500 text-xs sm:text-sm">
+            <p class="mb-1 text-slate-300 font-medium">Чат с агентом «${escapeHtml(agent.name)}»</p>
+            <p>История этого диалога изолирована от других агентов. Напишите сообщение ниже.</p>
+          </div>`;
+        return;
+      }
+
+      agent.history.forEach(msg => {
+        const isUser = msg.role === 'user';
+        const wrapper = document.createElement('div');
+        wrapper.className = `flex flex-col max-w-[90%] sm:max-w-3xl ${isUser ? 'self-end items-end' : 'self-start items-start'}`;
+
+        const bubble = document.createElement('div');
+        bubble.className = `px-3.5 py-2.5 sm:px-4 sm:py-3 rounded-2xl text-sm leading-relaxed break-words ${
+          isUser 
+            ? 'bg-blue-600 text-white rounded-br-sm whitespace-pre-wrap' 
+            : 'bg-slate-900 border border-slate-800 text-slate-200 rounded-bl-sm prose'
+        }`;
+
+        if (isUser) {
+          bubble.textContent = msg.text;
+        } else {
+          bubble.innerHTML = marked.parse(msg.text);
+          bubble.querySelectorAll('pre code').forEach(block => hljs.highlightElement(block));
+        }
+
+        wrapper.appendChild(bubble);
+        chatContainer.appendChild(wrapper);
+      });
+
+      chatContainer.scrollTop = chatContainer.scrollHeight;
+    }
+
+    // --- АВТО-ВЫСОТА ПОЛЯ ВВОДА ---
+    messageInput.addEventListener('input', function () {
+      this.style.height = 'auto';
+      this.style.height = Math.min(this.scrollHeight, 144) + 'px';
+    });
+
+    // --- ВЗАИМОДЕЙСТВИЕ С GEMINI REST API ---
+    async function sendMessageToGemini(userText) {
+      if (!state.apiKey) {
+        alert('Сначала вставьте ваш Gemini API Key в боковом меню.');
+        openLeftDrawer();
+        return;
+      }
+
+      const agent = getActiveAgent();
+      agent.history.push({ role: 'user', text: userText });
+      saveState();
+      renderChatHistory(agent);
+      renderAgentsList();
+
+      const loadingDiv = document.createElement('div');
+      loadingDiv.className = 'self-start bg-slate-900 border border-slate-800 text-slate-400 px-3.5 py-2 rounded-2xl text-xs animate-pulse';
+      loadingDiv.textContent = `${agent.name} печатает...`;
+      chatContainer.appendChild(loadingDiv);
+      chatContainer.scrollTop = chatContainer.scrollHeight;
+      sendBtn.disabled = true;
+
+      try {
+        const contents = agent.history.map(item => ({
+          role: item.role === 'user' ? 'user' : 'model',
+          parts: [{ text: item.text }]
+        }));
+
+        const requestBody = {
+          contents: contents,
+          generationConfig: {
+            temperature: parseFloat(agent.temperature)
+          }
+        };
+
+        if (agent.systemInstruction && agent.systemInstruction.trim()) {
+          requestBody.systemInstruction = {
+            parts: [{ text: agent.systemInstruction.trim() }]
+          };
+        }
+
+        if (agent.useSearch) {
+          requestBody.tools = [{ google_search: {} }];
+        }
+
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${agent.model}:generateContent?key=${encodeURIComponent(state.apiKey)}`;
+        
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(requestBody)
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error?.message || `HTTP Error ${response.status}`);
+        }
+
+        const replyText = data.candidates?.[0]?.content?.parts
+          ?.map(p => p.text)
+          .filter(Boolean)
+          .join('\n') || 'Пустой ответ от модели.';
+
+        agent.history.push({ role: 'model', text: replyText });
+        saveState();
+      } catch (err) {
+        agent.history.push({ role: 'model', text: `**Ошибка API:** ${err.message}` });
+        saveState();
+      } finally {
+        loadingDiv.remove();
+        sendBtn.disabled = false;
+        renderChatHistory(agent);
+        renderAgentsList();
+      }
+    }
+
+    // --- СОБЫТИЯ ---
+    apiKeyInput.addEventListener('input', (e) => {
+      state.apiKey = e.target.value.trim();
+      saveState();
+    });
+
+    document.getElementById('addAgentBtn').addEventListener('click', () => {
+      const newAgent = {
+        id: 'agent-' + Date.now(),
+        name: `Агент #${state.agents.length + 1}`,
+        model: 'gemini-3.8-flash',
+        systemInstruction: 'Ты - полезный ИИ-ассистент.',
+        temperature: 0.7,
+        useSearch: false,
+        history: []
+      };
+      state.agents.push(newAgent);
+      state.activeAgentId = newAgent.id;
+      saveState();
+      renderAll();
+      closeDrawers();
+    });
+
+    document.getElementById('deleteAgentBtn').addEventListener('click', () => {
+      if (state.agents.length <= 1) {
+        alert('Нельзя удалить последнего агента.');
+        return;
+      }
+      if (!confirm('Удалить этого агента и всю его историю?')) return;
+      state.agents = state.agents.filter(a => a.id !== state.activeAgentId);
+      state.activeAgentId = state.agents[0].id;
+      saveState();
+      renderAll();
+      closeDrawers();
+    });
+
+    document.getElementById('clearChatBtn').addEventListener('click', () => {
+      if (!confirm('Очистить переписку с этим агентом?')) return;
+      const agent = getActiveAgent();
+      agent.history = [];
+      saveState();
+      renderAll();
+    });
+
+    document.getElementById('refreshModelsBtn').addEventListener('click', async () => {
+      if (!state.apiKey) return alert('Сначала вставьте API Key в левом меню.');
+      try {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(state.apiKey)}`);
+        const data = await res.json();
+        const models = (data.models || [])
+          .filter(m => m.supportedGenerationMethods?.includes('generateContent'))
+          .map(m => m.name.replace('models/', ''));
+        
+        if (models.length === 0) return alert('Модели не найдены.');
+        agentModelSelect.innerHTML = models.map(m => `<option value="${m}">${m}</option>`).join('');
+        if (models.includes(getActiveAgent().model)) {
+          agentModelSelect.value = getActiveAgent().model;
+        } else {
+          getActiveAgent().model = models[0];
+          saveState();
+          renderAll();
+        }
+        alert(`Загружено моделей: ${models.length}`);
+      } catch (e) {
+        alert('Ошибка загрузки списка моделей: ' + e.message);
+      }
+    });
+
+    agentNameInput.addEventListener('input', (e) => {
+      getActiveAgent().name = e.target.value || 'Без имени';
+      saveState();
+      renderAgentsList();
+      currentAgentTitle.textContent = getActiveAgent().name;
+    });
+
+    agentModelSelect.addEventListener('change', (e) => {
+      getActiveAgent().model = e.target.value;
+      saveState();
+      renderAll();
+    });
+
+    agentSystemPrompt.addEventListener('input', (e) => {
+      getActiveAgent().systemInstruction = e.target.value;
+      saveState();
+    });
+
+    agentTempInput.addEventListener('input', (e) => {
+      getActiveAgent().temperature = parseFloat(e.target.value);
+      tempValue.textContent = e.target.value;
+      saveState();
+      renderActiveAgent();
+    });
+
+    agentSearchToggle.addEventListener('change', (e) => {
+      getActiveAgent().useSearch = e.target.checked;
+      saveState();
+      renderActiveAgent();
+    });
+
+    document.getElementById('chatForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const text = messageInput.value.trim();
+      if (!text) return;
+      messageInput.value = '';
+      messageInput.style.height = 'auto';
+      sendMessageToGemini(text);
+    });
+
+    messageInput.addEventListener('keydown', (e) => {
+      // На десктопе Enter отправляет сообщение, на мобильных устройствах Enter делает перенос строки
+      if (e.key === 'Enter' && !e.shiftKey && window.innerWidth >= 768) {
+        e.preventDefault();
+        document.getElementById('chatForm').dispatchEvent(new Event('submit'));
+      }
+    });
+
+    document.getElementById('exportBtn').addEventListener('click', () => {
+      const exportData = { ...state, apiKey: '' };
+      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `gemini-agents-backup-${new Date().toISOString().slice(0,10)}.json`;
+      a.click();
+    });
+
+    document.getElementById('importInput').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        try {
+          const imported = JSON.parse(ev.target.result);
+          if (Array.isArray(imported.agents) && imported.agents.length > 0) {
+            state.agents = imported.agents;
+            state.activeAgentId = imported.activeAgentId || imported.agents[0].id;
+            saveState();
+            renderAll();
+            closeDrawers();
+            alert('Агенты и история успешно восстановлены!');
+          }
+        } catch (err) {
+          alert('Ошибка чтения JSON файла.');
+        }
+      };
+      reader.readAsText(file);
+    });
+
+    function escapeHtml(str) {
+      return str.replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+    }
+
+    renderAll();
+  </script>
+</body>
+</html>
