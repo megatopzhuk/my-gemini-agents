@@ -157,7 +157,6 @@
         </div>
 
         <form id="chatForm" class="flex items-end gap-2">
-          <!-- Скрытый input для выбора файлов и фото -->
           <input type="file" id="fileAttachInput" class="hidden"
                  accept="image/*,.pdf,.txt,.csv,.json,.md,.html,.xlsx,.xls,.py,.js,.sql,.xml" />
           
@@ -236,7 +235,7 @@
     </div>
 
     <div class="text-[11px] text-slate-500 mt-auto pt-2">
-      Поддерживаются фото, PDF, Excel (.xlsx) и текст. Ответы можно скачивать в файлы.
+      Поддерживаются фото, PDF, Excel (.xlsx) и текст. Ответы можно скачивать в Word (.doc) и текст (.txt).
     </div>
   </aside>
 
@@ -291,7 +290,7 @@
     let currentUser = null;
     let unsubscribeSnapshot = null;
     let saveTimeout = null;
-    let pendingAttachment = null; // Текущий прикрепленный файл перед отправкой
+    let pendingAttachment = null;
 
     let state = {
       apiKey: '',
@@ -329,7 +328,6 @@
 
     // --- ОБРАБОТКА ВЛОЖЕНИЙ (ФОТО, PDF, EXCEL, ТЕКСТ) ---
     attachBtn.addEventListener('click', () => fileAttachInput.click());
-
     removeAttachmentBtn.addEventListener('click', clearPendingAttachment);
 
     function clearPendingAttachment() {
@@ -343,9 +341,8 @@
       const file = e.target.files[0];
       if (!file) return;
 
-      // Лимит 15 МБ для стабильной отправки через браузер/Worker
       if (file.size > 15 * 1024 * 1024) {
-        alert('Файл слишком большой. Максимальный размер — 15 МБ.');
+        alert('Файл слишком большой. Максимальный размер - 15 МБ.');
         clearPendingAttachment();
         return;
       }
@@ -407,10 +404,9 @@
       });
     }
 
-    // --- УНИВЕРСАЛЬНОЕ СОХРАНЕНИЕ ФАЙЛОВ (БРАУЗЕР + ANDROID APK) ---
+    // --- УНИВЕРСАЛЬНОЕ СОХРАНЕНИЕ ФАЙЛОВ (WORD .DOC, .TXT, .CSV И ДР.) ---
     window.downloadGeneratedFile = async function(filename, content, mimeType = 'text/plain;charset=utf-8') {
       try {
-        // Проверяем, запущено ли приложение внутри Android Capacitor с нативным Share
         if (window.Capacitor && window.Capacitor.isNativePlatform()) {
           const blob = new Blob([content], { type: mimeType });
           const file = new File([blob], filename, { type: mimeType });
@@ -426,7 +422,6 @@
         console.warn('Native share fallback to blob:', err);
       }
 
-      // Стандартное скачивание для браузера
       const blob = new Blob([content], { type: mimeType });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -436,6 +431,30 @@
       a.click();
       document.body.removeChild(a);
       setTimeout(() => URL.revokeObjectURL(url), 1000);
+    };
+
+    // Конвертация ответа в полноценный документ Microsoft Word (.doc) с форматированием
+    window.downloadAsWordDoc = function(filename, markdownText) {
+      const htmlContent = marked.parse(markdownText);
+      const wordHtml = `
+        <html xmlns:o='urn:schemas-microsoft-com:office:office'
+              xmlns:w='urn:schemas-microsoft-com:office:word'
+              xmlns='http://www.w3.org/TR/REC-html40'>
+        <head>
+          <meta charset='utf-8'>
+          <title>${escapeHtml(filename)}</title>
+          <style>
+            body { font-family: Calibri, Arial, sans-serif; font-size: 11pt; line-height: 1.5; color: #111111; }
+            h1, h2, h3 { color: #1e3a8a; margin-top: 12pt; margin-bottom: 6pt; }
+            table { border-collapse: collapse; width: 100%; margin: 10pt 0; }
+            th, td { border: 1px solid #888888; padding: 6pt 8pt; text-align: left; }
+            th { background-color: #f1f5f9; font-weight: bold; }
+            pre, code { font-family: Consolas, monospace; background-color: #f8fafc; padding: 4pt; }
+          </style>
+        </head>
+        <body>${htmlContent}</body>
+        </html>`;
+      window.downloadGeneratedFile(filename, '\ufeff' + wordHtml, 'application/msword;charset=utf-8');
     };
 
     // --- АВТОРИЗАЦИЯ ---
@@ -631,7 +650,7 @@
         chatContainer.innerHTML = `
           <div class="m-auto text-center max-w-sm px-4 text-slate-500 text-xs sm:text-sm">
             <p class="mb-1 text-slate-300 font-medium">Чат с агентом «${escapeHtml(agent.name)}»</p>
-            <p>Прикрепляйте фото, PDF или Excel через 📎. Любой ответ можно скачать файлом.</p>
+            <p>Прикрепляйте фото, PDF или Excel через 📎. Любой ответ можно скачать в Word (.doc) или .txt.</p>
           </div>`;
         return;
       }
@@ -668,26 +687,41 @@
           const actionsRow = document.createElement('div');
           actionsRow.className = 'flex flex-wrap items-center gap-2 mt-1.5 px-1';
 
-          // Кнопки для сгенерированных файлов по запросу
+          // Кнопки для сгенерированных файлов по запросу (CSV, JSON, скрипты и т.д.)
           fileBlocks.forEach(fb => {
             const fileBtn = document.createElement('button');
             fileBtn.type = 'button';
             fileBtn.className = 'text-[11px] bg-blue-600/20 hover:bg-blue-600/40 text-blue-300 border border-blue-500/40 px-2.5 py-1 rounded-lg transition flex items-center gap-1';
             fileBtn.innerHTML = `<span>⬇️ Скачать ${escapeHtml(fb.name)}</span>`;
-            fileBtn.onclick = () => window.downloadGeneratedFile(fb.name, fb.content);
+            fileBtn.onclick = () => {
+              const payload = fb.name.toLowerCase().endsWith('.csv') ? '\ufeff' + fb.content : fb.content;
+              window.downloadGeneratedFile(fb.name, payload);
+            };
             actionsRow.appendChild(fileBtn);
           });
 
-          // Кнопка сохранения всего ответа в Markdown/TXT
-          const saveMdBtn = document.createElement('button');
-          saveMdBtn.type = 'button';
-          saveMdBtn.className = 'text-[11px] bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800 px-2 py-1 rounded-lg transition';
-          saveMdBtn.textContent = '💾 Сохранить ответ (.md)';
-          saveMdBtn.onclick = () => {
+          // Кнопка сохранения в Word (.doc)
+          const saveDocBtn = document.createElement('button');
+          saveDocBtn.type = 'button';
+          saveDocBtn.className = 'text-[11px] bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700 px-2.5 py-1 rounded-lg transition';
+          saveDocBtn.textContent = '📄 В Word (.doc)';
+          saveDocBtn.onclick = () => {
             const stamp = new Date().toISOString().slice(0, 10);
-            window.downloadGeneratedFile(`${agent.name}-${stamp}-${msgIndex + 1}.md`, msg.text, 'text/markdown;charset=utf-8');
+            window.downloadAsWordDoc(`${agent.name}-${stamp}-${msgIndex + 1}.doc`, msg.text);
           };
-          actionsRow.appendChild(saveMdBtn);
+          actionsRow.appendChild(saveDocBtn);
+
+          // Кнопка сохранения в обычный текст (.txt)
+          const saveTxtBtn = document.createElement('button');
+          saveTxtBtn.type = 'button';
+          saveTxtBtn.className = 'text-[11px] bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800 px-2.5 py-1 rounded-lg transition';
+          saveTxtBtn.textContent = '📝 В текст (.txt)';
+          saveTxtBtn.onclick = () => {
+            const stamp = new Date().toISOString().slice(0, 10);
+            const plainText = bubble.innerText || msg.text;
+            window.downloadGeneratedFile(`${agent.name}-${stamp}-${msgIndex + 1}.txt`, '\ufeff' + plainText, 'text/plain;charset=utf-8');
+          };
+          actionsRow.appendChild(saveTxtBtn);
 
           wrapper.appendChild(actionsRow);
         }
@@ -715,7 +749,6 @@
       const attachment = pendingAttachment;
       clearPendingAttachment();
 
-      // Формируем текст для сохранения в облачную историю (без тяжелого base64)
       let historyDisplayText = userText;
       if (attachment) {
         const badge = `📎 [${attachment.name}]`;
@@ -740,13 +773,11 @@
       const retryDelayMs = 2000;
 
       try {
-        // Собираем историю для API
         const contents = agent.history.slice(0, -1).map(item => ({
           role: item.role === 'user' ? 'user' : 'model',
           parts: [{ text: item.text }]
         }));
 
-        // Текущее сообщение с учетом прикрепленного файла
         const currentParts = [];
         if (attachment) {
           if (attachment.kind === 'inline') {
@@ -779,8 +810,7 @@
           generationConfig.thinkingConfig = { thinkingBudget: 0 };
         }
 
-        // Добавляем системную подсказку для генерации файлов по запросу пользователя
-        const fileExportRule = '\n\n[Системное правило вывода файлов]: Если пользователь просит прислать результат файлом (CSV, JSON, TXT, HTML, SQL, скрипт или документ), оформи содержимое файла в отдельный блок кода с префиксом file:имя_файла.расширение (например: ```file:report.csv\\n...\\n```), чтобы приложение создало кнопку скачивания.';
+        const fileExportRule = '\n\n[Системное правило вывода файлов]: Если пользователь просит прислать результат файлом (таблицей CSV, JSON, TXT, HTML, SQL или скриптом), оформи содержимое файла в отдельный блок кода с префиксом file:имя_файла.расширение (например: ```file:report.csv\\n...\\n```), чтобы приложение создало кнопку скачивания.';
         const combinedSystemPrompt = ((agent.systemInstruction || '').trim() + fileExportRule).trim();
 
         const requestBody = {
